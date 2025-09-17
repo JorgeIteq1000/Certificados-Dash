@@ -9,6 +9,7 @@ import StudentDetailPanel from './StudentDetailPanel';
 const StudentTable = ({ data }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [isDetailPanelOpen, setIsDetailPanelOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -37,7 +38,17 @@ const StudentTable = ({ data }) => {
     }
   };
 
+  const handleViewStudent = (student) => {
+    console.log('log: Abrindo detalhes para o aluno:', student.Nome);
+    setSelectedStudent(student);
+    setIsDetailPanelOpen(true);
+  };
 
+  const handleCloseDetailPanel = () => {
+    console.log('log: Fechando painel de detalhes.');
+    setIsDetailPanelOpen(false);
+    setTimeout(() => setSelectedStudent(null), 300);
+  };
 
   return (
     <Card className="border-0 shadow-sm">
@@ -87,7 +98,7 @@ const StudentTable = ({ data }) => {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setSelectedStudent(student)}
+                      onClick={() => handleViewStudent(student)}
                     >
                       <Eye className="h-4 w-4 mr-1" />
                       Ver
@@ -126,7 +137,8 @@ const StudentTable = ({ data }) => {
         {selectedStudent && (
           <StudentDetailPanel 
             student={selectedStudent} 
-            onClose={() => setSelectedStudent(null)} 
+            open={isDetailPanelOpen}
+            onClose={handleCloseDetailPanel} 
           />
         )}
       </CardContent>
@@ -135,4 +147,3 @@ const StudentTable = ({ data }) => {
 };
 
 export default StudentTable;
-

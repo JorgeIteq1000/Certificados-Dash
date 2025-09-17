@@ -1,8 +1,9 @@
 import React from 'react';
 import { Button } from './ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from './ui/dialog';
 import { categorizeDelinquency } from '../lib/dataProcessor';
 
-const StudentDetailPanel = ({ student, onClose }) => {
+const StudentDetailPanel = ({ student, open, onClose }) => {
   const getStatusIcon = (status) => {
     if (status === 1) return '✅';
     if (status === 0) return '❌';
@@ -22,16 +23,15 @@ const StudentDetailPanel = ({ student, onClose }) => {
   if (!student) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-auto">
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-bold text-[#1F2933]">{student.Nome}</DialogTitle>
+           <DialogClose asChild>
+              <Button variant="outline" size="sm">✕</Button>
+          </DialogClose>
+        </DialogHeader>
         <div className="p-6">
-          <div className="flex justify-between items-start mb-4">
-            <h3 className="text-xl font-bold text-[#1F2933]">{student.Nome}</h3>
-            <Button variant="outline" size="sm" onClick={onClose}>
-              ✕
-            </Button>
-          </div>
-          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <h4 className="font-semibold text-[#1F2933] mb-2">Informações Básicas</h4>
@@ -40,7 +40,7 @@ const StudentDetailPanel = ({ student, onClose }) => {
                 <p><span className="font-medium">Curso:</span> {student.Curso}</p>
                 <p><span className="font-medium">Turma:</span> {student.Turma}</p>
                 <p><span className="font-medium">Status:</span> {student["Status Inscrição"]}</p>
-                <p><span className="font-medium">Data Início:</span> {student["Data Início"]}</p>
+                <p><span className="font-medium">Data Início:</span> {student["Data Início"] ? new Date(student["Data Início"]).toLocaleDateString() : 'N/A'}</p>
               </div>
             </div>
             
@@ -73,13 +73,13 @@ const StudentDetailPanel = ({ student, onClose }) => {
               <div className="space-y-2 text-sm">
                 <div>
                   <p className="font-medium">Digital:</p>
-                  <p>Data Solicitação: {student["Data Solic. Digital"]}</p>
+                  <p>Data Solicitação: {student["Data Solic. Digital"] ? new Date(student["Data Solic. Digital"]).toLocaleDateString() : 'Não Solicitado'}</p>
                   <p>Tipo: {student["Tipo Cert. Digital"]}</p>
                   <p>Status: {student["Status Cert. Digital"]}</p>
                 </div>
                 <div>
                   <p className="font-medium">Impresso:</p>
-                  <p>Data Solicitação: {student["Data Solic. Impresso"]}</p>
+                  <p>Data Solicitação: {student["Data Solic. Impresso"] ? new Date(student["Data Solic. Impresso"]).toLocaleDateString() : 'Não Solicitado'}</p>
                   <p>Tipo: {student["Tipo Cert. Impresso"]}</p>
                   <p>Status: {student["Status Cert. Impresso"]}</p>
                 </div>
@@ -87,11 +87,9 @@ const StudentDetailPanel = ({ student, onClose }) => {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
 
 export default StudentDetailPanel;
-
-

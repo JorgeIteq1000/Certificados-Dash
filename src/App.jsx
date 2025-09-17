@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
-import { fetchData, normalizeData, calculateKPIs, calculateStatusMetrics, calculateDelinquencyDistribution, calculateEnrollmentStatusDistribution, calculateDisciplineProgress, calculateCertificateTimeline } from './lib/dataProcessor';
+import { fetchData, normalizeData, calculateKPIs } from './lib/dataProcessor';
 import { exportToPDF, exportToExcel } from './lib/exportUtils';
 import KPICards from './components/KPICards';
 import CertificateTimeline from './components/CertificateTimeline';
@@ -27,10 +27,10 @@ function App() {
     dateRange: { start: null, end: null }
   });
 
-  const loadData = async () => {
+  const loadData = async (force = false) => {
     setLoading(true);
     try {
-      const rawData = await fetchData();
+      const rawData = await fetchData(force);
       const normalized = normalizeData(rawData);
       setData(rawData);
       setNormalizedData(normalized);
@@ -48,16 +48,15 @@ function App() {
   useEffect(() => {
     loadData();
     
-    // Auto-refresh every 15 minutes
     const interval = setInterval(() => {
-      loadData();
+      loadData(true); // Força a atualização a cada 15 minutos
     }, 15 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, []);
 
   const handleForceRefresh = () => {
-    loadData();
+    loadData(true);
   };
 
   const applyFilters = (data) => {
@@ -69,7 +68,6 @@ function App() {
           item["Tipo Cert. Digital"] !== filters.tipoCertificado && 
           item["Tipo Cert. Impresso"] !== filters.tipoCertificado) return false;
       
-      // Date range filter
       if (filters.dateRange?.start || filters.dateRange?.end) {
         const startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : null;
         const endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : null;
@@ -108,7 +106,6 @@ function App() {
   return (
     <div className="min-h-screen bg-[#F5F7F9] p-4">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
         <div className="mb-6 flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold text-[#1F2933] mb-2">Dashboard Certificados</h1>
@@ -126,7 +123,6 @@ function App() {
           </Button>
         </div>
 
-        {/* Filters */}
         <FilterPanel 
           data={normalizedData}
           filters={filters}
@@ -134,22 +130,16 @@ function App() {
           onExportPDF={handleExportPDF}
           onExportExcel={handleExportExcel}
         />
-
-        {/* KPI Cards */}
         <KPICards kpis={filteredKPIs} />
 
-        {/* Charts Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          {/* <CertificateTimeline data={filteredData} /> */}
-          {/* <StatusDistribution data={filteredData} /> */}
-          {/* <DelinquencyHeatmap data={filteredData} /> */}
-          {/* <DisciplineVsPayments data={filteredData} /> */}
+          <CertificateTimeline data={filteredData} />
+          <StatusDistribution data={filteredData} />
+          <DelinquencyHeatmap data={filteredData} />
+          <DisciplineVsPayments data={filteredData} />
         </div>
 
-        {/* Status Counters */}
         <StatusCounters data={filteredData} />
-
-        {/* Student Table */}
         <StudentTable data={filteredData} />
       </div>
     </div>
@@ -157,5 +147,3 @@ function App() {
 }
 
 export default App;
-
-

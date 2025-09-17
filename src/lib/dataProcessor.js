@@ -3,10 +3,23 @@ import Papa from 'papaparse';
 const DATA_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ25AYPgZEudDjhakxxgPNt4IjVlrKWmXzrjgcp7M95YPV23Iib4C7bQ8VAXi_AE49cIfg59Ie9z42X/pub?output=csv';
 const LOCAL_DATA_URL = '/data.json';
 
-export async function fetchData() {
+export async function fetchData(forceRefresh = false) {
+  const cacheKey = 'googleSheetData';
+  
+  if (!forceRefresh) {
+    const cachedData = sessionStorage.getItem(cacheKey);
+    if (cachedData) {
+      console.log('log: Carregando dados do cache da sessão.');
+      return Promise.resolve(JSON.parse(cachedData));
+    }
+  }
+
   try {
-    // Try to fetch from Google Sheets first
+    console.log('log: Buscando dados do Google Sheets.');
     const response = await fetch(DATA_URL);
+    if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+    }
     const csvText = await response.text();
 
     return new Promise((resolve, reject) => {
@@ -16,20 +29,22 @@ export async function fetchData() {
         skipEmptyLines: true,
         complete: (results) => {
           if (results.data && results.data.length > 0) {
+            console.log('log: Dados do Google Sheets carregados e cacheados.');
+            sessionStorage.setItem(cacheKey, JSON.stringify(results.data)); // Salva no cache
             resolve(results.data);
           } else {
-            // Fallback to local data
+            console.log('log: Nenhum dado retornado do Google Sheets, usando dados locais.');
             fetchLocalData().then(resolve).catch(reject);
           }
         },
         error: (error) => {
-          console.warn('Erro ao buscar dados do Google Sheets, usando dados locais:', error);
+          console.warn('log: Erro ao processar CSV do Google Sheets, usando dados locais:', error);
           fetchLocalData().then(resolve).catch(reject);
         },
       });
     });
   } catch (error) {
-    console.warn('Erro ao buscar dados do Google Sheets, usando dados locais:', error);
+    console.warn('log: Erro ao buscar dados do Google Sheets, usando dados locais:', error);
     return fetchLocalData();
   }
 }
@@ -81,9 +96,8 @@ export function normalizeData(data) {
 
 function normalizeDate(dateString) {
   if (!dateString || dateString === 'Não Solicitado') return null;
-  const parts = dateString.split(/[-\/]/);
+  const parts = String(dateString).split(/[-\/]/);
   if (parts.length === 3) {
-    // Assume DD/MM/YYYY or YYYY-MM-DD
     const [p1, p2, p3] = parts;
     if (p1.length === 4) { // YYYY-MM-DD
       return new Date(p1, p2 - 1, p3);
@@ -110,14 +124,10 @@ function parseRatio(ratioString) {
   const denominator = parseInt(parts[1], 10);
 
   if (isNaN(numerator) || isNaN(denominator) || denominator === 0) {
-    return 'NA'; // Tratar divisão por zero ou valores inválidos
+    return 'NA';
   }
   return (numerator / denominator) * 100;
 }
-
-
-
-
 
 export function calculateStatusMetrics(data, fields) {
   const metrics = {};
@@ -150,143 +160,92 @@ export function categorizeDelinquency(paidRatio) {
   return 'NA';
 }
 
+export function calculateKPIs(data) {
+    const totalStudents = data.length;
+
+    const delinquencyDistribution = calculateDelinquencyDistribution(data);
+    const percentEmDia = delinquencyDistribution["Em dia"] || 0;
+    const percentInadimplentes = (delinquencyDistribution["Atraso leve"] || 0) +
+                                 (delinquencyDistribution["Atraso médio"] || 0) +
+                                 (delinquencyDistribution["Inadimplente grave"] || 0);
+
+    const { overallAverageProgress: avgDisciplineProgress } = calculateDisciplineProgress(data);
+
+    const statusMetricsDocs = calculateStatusMetrics(data, ["Documentos"]);
+    const percentDocsOK = statusMetricsDocs["Documentos"].OK_Percent || 0;
+
+    const certTimeline30d = calculateCertificateTimeline(data, 30);
+    const totalCertRequests30d = Object.values(certTimeline30d).reduce((sum, { digital, impresso }) => sum + digital + impresso, 0);
+
+    return {
+      totalStudents,
+      percentEmDia,
+      percentInadimplentes,
+      avgDisciplineProgress,
+      percentDocsOK,
+      totalCertRequests30d,
+    };
+}
+
 export function calculateDelinquencyDistribution(data) {
   const distribution = { 'Em dia': 0, 'Atraso leve': 0, 'Atraso médio': 0, 'Inadimplente grave': 0, 'NA': 0 };
   data.forEach(item => {
     const category = categorizeDelinquency(item["Cobranças_Percentual"]);
-    distribution[category]++;
+    if (distribution[category] !== undefined) {
+      distribution[category]++;
+    }
   });
   const total = data.length;
-  const result = {};
-  for (const category in distribution) {
-    result[category] = total > 0 ? (distribution[category] / total) * 100 : 0;
-  }
-  return result;
-}
-
-export function calculateEnrollmentStatusDistribution(data) {
-  const distribution = {};
-  data.forEach(item => {
-    const status = item["Status Inscrição"];
-    distribution[status] = (distribution[status] || 0) + 1;
-  });
-  const total = data.length;
-  const result = {};
-  for (const status in distribution) {
-    result[status] = total > 0 ? (distribution[status] / total) * 100 : 0;
-  }
-  return result;
+  return Object.keys(distribution).reduce((acc, key) => {
+    acc[key] = total > 0 ? (distribution[key] / total) * 100 : 0;
+    return acc;
+  }, {});
 }
 
 export function calculateDisciplineProgress(data) {
-  const courseTurmaProgress = {}; // { "Curso - Turma": { totalProgress: 0, count: 0 } }
-  let totalDisciplineProgress = 0;
-  let totalStudentsWithDisciplineProgress = 0;
+    let totalDisciplineProgress = 0;
+    let totalStudentsWithDisciplineProgress = 0;
 
-  data.forEach(item => {
-    const course = item["Curso"];
-    const turma = item["Turma"];
-    const progress = item["Disciplinas_Percentual"];
-
-    if (progress !== 'NA') {
-      totalDisciplineProgress += progress;
-      totalStudentsWithDisciplineProgress++;
-
-      const key = `${course} - ${turma}`;
-      if (!courseTurmaProgress[key]) {
-        courseTurmaProgress[key] = { totalProgress: 0, count: 0 };
-      }
-      courseTurmaProgress[key].totalProgress += progress;
-      courseTurmaProgress[key].count++;
-    }
-  });
-
-  const averageProgressByCourseTurma = {};
-  for (const key in courseTurmaProgress) {
-    const { totalProgress, count } = courseTurmaProgress[key];
-    averageProgressByCourseTurma[key] = count > 0 ? totalProgress / count : 0;
-  }
-
-  const overallAverageProgress = totalStudentsWithDisciplineProgress > 0 ? totalDisciplineProgress / totalStudentsWithDisciplineProgress : 0;
-
-  return { averageProgressByCourseTurma, overallAverageProgress };
-}
-
-export function calculateCertificateTimeline(data, days) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const timeline = {};
-
-  for (let i = 0; i < days; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - i);
-    const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD
-    timeline[dateString] = { digital: 0, impresso: 0 };
-  }
-
-  data.forEach(item => {
-    const digitalDate = item["Data Solic. Digital"];
-    const impressoDate = item["Data Solic. Impresso"];
-
-    if (digitalDate instanceof Date) {
-      const diffTime = Math.abs(today - digitalDate);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      if (diffDays <= days) {
-        const dateString = digitalDate.toISOString().split('T')[0];
-        if (timeline[dateString]) {
-          timeline[dateString].digital++;
+    data.forEach(item => {
+        const progress = item["Disciplinas_Percentual"];
+        if (progress !== 'NA') {
+            totalDisciplineProgress += progress;
+            totalStudentsWithDisciplineProgress++;
         }
-      }
+    });
+
+    const overallAverageProgress = totalStudentsWithDisciplineProgress > 0 ? totalDisciplineProgress / totalStudentsWithDisciplineProgress : 0;
+    return { overallAverageProgress };
+}
+
+export function calculateCertificateTimeline(data, days = 30) {
+    const timeline = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < days; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        const dateString = date.toISOString().split('T')[0];
+        timeline[dateString] = { digital: 0, impresso: 0 };
     }
 
-    if (impressoDate instanceof Date) {
-      const diffTime = Math.abs(today - impressoDate);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      if (diffDays <= days) {
-        const dateString = impressoDate.toISOString().split('T')[0];
-        if (timeline[dateString]) {
-          timeline[dateString].impresso++;
+    data.forEach(item => {
+        const digitalDate = item["Data Solic. Digital"];
+        if (digitalDate instanceof Date) {
+            const dateString = digitalDate.toISOString().split('T')[0];
+            if (timeline[dateString]) {
+                timeline[dateString].digital++;
+            }
         }
-      }
-    }
-  });
 
-  return timeline;
+        const impressoDate = item["Data Solic. Impresso"];
+        if (impressoDate instanceof Date) {
+            const dateString = impressoDate.toISOString().split('T')[0];
+            if (timeline[dateString]) {
+                timeline[dateString].impresso++;
+            }
+        }
+    });
+    return timeline;
 }
-
-export function calculateKPIs(data) {
-  const totalStudents = data.length;
-
-  const delinquencyDistribution = calculateDelinquencyDistribution(data);
-  const percentEmDia = delinquencyDistribution["Em dia"] || 0;
-  const percentInadimplentes = (delinquencyDistribution["Atraso leve"] || 0) +
-                               (delinquencyDistribution["Atraso médio"] || 0) +
-                               (delinquencyDistribution["Inadimplente grave"] || 0);
-
-  const { overallAverageProgress: avgDisciplineProgress } = calculateDisciplineProgress(data);
-
-  const statusMetricsDocs = calculateStatusMetrics(data, ["Documentos"]);
-  const percentDocsOK = statusMetricsDocs["Documentos"].OK_Percent || 0;
-
-  const certTimeline7d = calculateCertificateTimeline(data, 7);
-  const certTimeline30d = calculateCertificateTimeline(data, 30);
-  const certTimeline90d = calculateCertificateTimeline(data, 90);
-
-  const totalCertRequests7d = Object.values(certTimeline7d).reduce((sum, { digital, impresso }) => sum + digital + impresso, 0);
-  const totalCertRequests30d = Object.values(certTimeline30d).reduce((sum, { digital, impresso }) => sum + digital + impresso, 0);
-  const totalCertRequests90d = Object.values(certTimeline90d).reduce((sum, { digital, impresso }) => sum + digital + impresso, 0);
-
-  return {
-    totalStudents,
-    percentEmDia,
-    percentInadimplentes,
-    avgDisciplineProgress,
-    percentDocsOK,
-    totalCertRequests7d,
-    totalCertRequests30d,
-    totalCertRequests90d,
-    lastUpdated: new Date().toLocaleString(), // Placeholder, will be updated by refresh logic
-  };
-}
-
-
